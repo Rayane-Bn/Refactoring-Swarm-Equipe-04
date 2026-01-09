@@ -1,11 +1,241 @@
 [
-  {
-    "id": "9e82e9b0-9b43-4a78-af43-d5d5ef848a2f",
-    "timestamp": "2025-12-26T01:26:41.177789",
-    "agent": "System",
-    "model": "unknown",
-    "action": "STARTUP",
-    "details": "Target: ./sandbox",
-    "status": "INFO"
-  }
+    {
+        "id": "9e82e9b0-9b43-4a78-af43-d5d5ef848a2f",
+        "timestamp": "2025-12-26T01:26:41.177789",
+        "agent": "System",
+        "model": "unknown",
+        "action": "STARTUP",
+        "details": "Target: ./sandbox",
+        "status": "INFO"
+    },
+    {
+        "id": "e45ecfcc-d0ae-4eef-b6c6-0d4931ecb1de",
+        "timestamp": "2026-01-08T10:48:55.252054",
+        "agent": "System",
+        "model": "system",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "input_prompt": "Système démarré avec target_dir=./sandbox/test_local",
+            "output_response": "Initialisation de l'orchestrateur",
+            "target_dir": "./sandbox/test_local",
+            "max_iterations": 10
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "d2d89735-d18a-4da5-9003-b29a9acc14a5",
+        "timestamp": "2026-01-08T10:48:55.253439",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "input_prompt": "Scan du dossier /home/rayane/Folder/ESI/IGL/TP/refactoring-swarm-template/sandbox/test_local pour trouver les fichiers Python",
+            "output_response": "Trouvé 3 fichier(s) Python",
+            "files_found": [
+                "error_syntax.py",
+                "bad_quality.py",
+                "error_logic.py"
+            ]
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "bfbc48cb-b8f7-4d48-8a9b-fb9c48e38612",
+        "timestamp": "2026-01-08T10:48:55.254164",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "input_prompt": "Lancement de l'Auditor sur error_syntax.py, itération 1",
+            "output_response": "Auditor en cours d'exécution",
+            "file": "error_syntax.py",
+            "iteration": 1,
+            "phase": "audit"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "7264a890-dbd1-479a-8d95-002752315d3b",
+        "timestamp": "2026-01-08T10:48:57.255634",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "FIX",
+        "details": {
+            "input_prompt": "Lancement du Fixer sur error_syntax.py, itération 1",
+            "output_response": "Fixer en cours d'exécution",
+            "file": "error_syntax.py",
+            "iteration": 1,
+            "phase": "fix"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "064146bb-d2c3-4855-a6af-a9504b2e4b22",
+        "timestamp": "2026-01-08T10:48:59.257467",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "DEBUG",
+        "details": {
+            "input_prompt": "Lancement du Judge sur error_syntax.py, itération 1",
+            "output_response": "Judge en cours d'exécution",
+            "file": "error_syntax.py",
+            "iteration": 1,
+            "phase": "judge"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "9baa148d-86c3-469a-897f-65535abaad10",
+        "timestamp": "2026-01-08T10:49:01.258755",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "CODE_GEN",
+        "details": {
+            "input_prompt": "Validation finale du fichier error_syntax.py",
+            "output_response": "Succès après 1 itération(s)",
+            "file": "error_syntax.py",
+            "iterations_needed": 1,
+            "final_status": "success"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "47a4993c-0388-477f-b995-5941b75ef1a7",
+        "timestamp": "2026-01-08T10:49:01.260008",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "input_prompt": "Lancement de l'Auditor sur bad_quality.py, itération 1",
+            "output_response": "Auditor en cours d'exécution",
+            "file": "bad_quality.py",
+            "iteration": 1,
+            "phase": "audit"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "70c9e33c-7db5-4e2c-8be3-a2031be9873d",
+        "timestamp": "2026-01-08T10:49:03.261346",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "FIX",
+        "details": {
+            "input_prompt": "Lancement du Fixer sur bad_quality.py, itération 1",
+            "output_response": "Fixer en cours d'exécution",
+            "file": "bad_quality.py",
+            "iteration": 1,
+            "phase": "fix"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "b3db1e37-1a15-49bd-bf6b-8149fb0f743e",
+        "timestamp": "2026-01-08T10:49:05.263684",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "DEBUG",
+        "details": {
+            "input_prompt": "Lancement du Judge sur bad_quality.py, itération 1",
+            "output_response": "Judge en cours d'exécution",
+            "file": "bad_quality.py",
+            "iteration": 1,
+            "phase": "judge"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "d78a9877-d175-44c0-942a-dabcda8bb25a",
+        "timestamp": "2026-01-08T10:49:07.265338",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "CODE_GEN",
+        "details": {
+            "input_prompt": "Validation finale du fichier bad_quality.py",
+            "output_response": "Succès après 1 itération(s)",
+            "file": "bad_quality.py",
+            "iterations_needed": 1,
+            "final_status": "success"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "c166d220-20e9-4d38-8131-1ed96f1bdea4",
+        "timestamp": "2026-01-08T10:49:07.266898",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "input_prompt": "Lancement de l'Auditor sur error_logic.py, itération 1",
+            "output_response": "Auditor en cours d'exécution",
+            "file": "error_logic.py",
+            "iteration": 1,
+            "phase": "audit"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "e456213d-d15c-4bfe-9b2f-922367d4e8cf",
+        "timestamp": "2026-01-08T10:49:09.275485",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "FIX",
+        "details": {
+            "input_prompt": "Lancement du Fixer sur error_logic.py, itération 1",
+            "output_response": "Fixer en cours d'exécution",
+            "file": "error_logic.py",
+            "iteration": 1,
+            "phase": "fix"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "43bdf3f2-19ae-408d-9ba1-342adcb28fdf",
+        "timestamp": "2026-01-08T10:49:11.277227",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "DEBUG",
+        "details": {
+            "input_prompt": "Lancement du Judge sur error_logic.py, itération 1",
+            "output_response": "Judge en cours d'exécution",
+            "file": "error_logic.py",
+            "iteration": 1,
+            "phase": "judge"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "5fc53180-6277-4862-b794-a7383d37accc",
+        "timestamp": "2026-01-08T10:49:13.279566",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "CODE_GEN",
+        "details": {
+            "input_prompt": "Validation finale du fichier error_logic.py",
+            "output_response": "Succès après 1 itération(s)",
+            "file": "error_logic.py",
+            "iterations_needed": 1,
+            "final_status": "success"
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "7cb8927f-998b-4009-87b6-4053e19a8ba7",
+        "timestamp": "2026-01-08T10:49:13.288009",
+        "agent": "Orchestrator",
+        "model": "system",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "input_prompt": "Génération du rapport final",
+            "output_response": "Rapport généré",
+            "execution_time_seconds": 18.027851343154907,
+            "statistics": {
+                "total_files": 3,
+                "successful_files": 3,
+                "failed_files": 0,
+                "total_iterations": 3
+            }
+        },
+        "status": "SUCCESS"
+    }
 ]

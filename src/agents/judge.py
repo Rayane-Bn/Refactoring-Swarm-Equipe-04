@@ -1,156 +1,141 @@
 """
-Judge Agent - Validates code by running tests.
+Judge Agent - Generates tests and validates code.
 
-This agent runs pytest on the code and determines if the fixes
-are acceptable or if more iterations are needed.
-
-RESPONSIBILITIES:
-- Run pytest on the test file
-- Analyze test results
-- If tests pass: confirm success
-- If tests fail: extract error messages and send back to Fixer
-- Use LLM to provide insights on failures
-
-TODO: Team member needs to implement the validate() method
+CRITICAL: This agent GENERATES test files using LLM to understand what code SHOULD do.
+It does NOT assume tests already exist.
 """
 import sys
 from pathlib import Path
 from typing import Dict
+import subprocess
+import re
+import os
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.tools.tester import run_pytest, generate_test_report, extract_failure_messages
+from src.tools.file_manager import read_file, write_file
 from src.utils.logger import log_experiment, ActionType
-from src.utils.config import GOOGLE_API_KEY, DEFAULT_MODEL
+from src.utils.config import GOOGLE_API_KEY, DEFAULT_MODEL, SANDBOX_DIR
 
-# TODO: Import LangChain / Google Gemini
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 
 class JudgeAgent:
     """
-    Agent responsible for validating code with tests.
+    Agent responsible for generating tests and validating code.
+    
+    WORKFLOW:
+    1. Analyze code with LLM to understand what it SHOULD do
+    2. Generate appropriate test file
+    3. Run tests with pytest
+    4. Report results
     """
     
     def __init__(self):
         """Initialize the Judge agent."""
         self.name = "Judge"
         
-        # TODO: Initialize LLM (optional - for analyzing complex failures)
+        # Initialize LLM for test generation
         self.llm = ChatGoogleGenerativeAI(
             model=DEFAULT_MODEL,
             google_api_key=GOOGLE_API_KEY,
-            temperature=0.1
+            temperature=0.3  # Some creativity for test generation
         )
         
-        # TODO: Load prompt from src/prompts/judge_prompt.txt
+        # Load system prompt
         self.system_prompt = self._load_prompt()
         
         print(f"✅ {self.name} agent initialized")
     
     def _load_prompt(self) -> str:
-        """
-        Load the system prompt for the Judge.
-        
-        Returns:
-            System prompt as string
-        """
+        """Load the system prompt for the Judge."""
         prompt_path = Path(__file__).parent.parent / "prompts" / "judge_prompt.txt"
         
         if prompt_path.exists():
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 return f.read()
         else:
-            # Fallback default prompt
-            return """You are an expert test validator and debugging assistant.
-
-Your task is to analyze test results and provide clear feedback.
-
-When tests PASS:
-- Confirm that the code is working correctly
-- Briefly summarize what was tested
-
-When tests FAIL:
-- Explain WHY the tests failed in simple terms
-- Identify what needs to be fixed
-- Suggest specific corrections
-
-Be clear, concise, and actionable."""
+            # Fallback
+            return """You are an expert test validator and test generator.
+Your task is to generate comprehensive unit tests that validate code behavior.
+Generate tests that check what the code SHOULD do, not just what it does."""
     
     def validate(self, file_path: str, test_file: str) -> Dict:
         """
-        Validate a Python file by running its tests.
+        Validate code by generating and running tests.
         
         Args:
-            file_path: Path to the code file being tested
-            test_file: Path to the test file
+            file_path: Path to the code file
+            test_file: Path where test file should be created
             
         Returns:
-            Dictionary containing:
-            - success: bool (True if validation completed, not if tests passed)
-            - tests_passed: bool (True if all tests passed)
-            - passed: int (number of tests passed)
-            - failed: int (number of tests failed)
-            - feedback: str (feedback for Fixer if tests failed)
+            Dictionary with validation results
         """
-        print(f"⚖️  {self.name}: Running tests for {file_path}...")
+        print(f"⚖️  {self.name}: Validating {file_path}...")
         
         try:
-            # Step 1: Run pytest
-            test_result = run_pytest(test_file, verbose=True)
+            # Step 1: Check if test file exists
+            test_path = SANDBOX_DIR / test_file
             
-            if not test_result.get("success") and test_result.get("error"):
-                # pytest itself failed to run
-                error_msg = test_result.get("error", "Unknown error")
-                print(f"   ❌ Test execution error: {error_msg}")
+            if not test_path.exists():
+                print(f"   ℹ️  Test file not found, generating tests...")
+                generation_result = self._generate_tests(file_path, test_file)
                 
-                log_experiment(
-                    agent_name=self.name,
-                    model_used=DEFAULT_MODEL,
-                    action=ActionType.DEBUG,
-                    details={
-                        "file_validated": file_path,
-                        "test_file": test_file,
-                        "input_prompt": "Test execution failed",
-                        "output_response": error_msg,
-                        "error": error_msg
-                    },
-                    status="FAILURE"
+                if not generation_result.get("success", False):
+                    return {
+                        "success": False,
+                        "tests_passed": False,
+                        "error": f"Failed to generate tests: {generation_result.get('error', 'Unknown')}"
+                    }
+                
+                print(f"   ✅ Tests generated: {test_file}")
+            
+            # Step 2: Run pytest
+            print(f"   🧪 Running tests...")
+            
+            cmd = ["pytest", str(test_path), "-v", "--tb=short", "--color=no"]
+            
+            # Change to sandbox directory
+            original_dir = os.getcwd()
+            os.chdir(SANDBOX_DIR)
+            
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
                 )
-                
-                return {
-                    "success": False,
-                    "tests_passed": False,
-                    "error": error_msg
-                }
+            finally:
+                os.chdir(original_dir)
             
-            # Step 2: Extract test statistics
-            passed = test_result.get("passed", 0)
-            failed = test_result.get("failed", 0)
-            total = test_result.get("total", 0)
-            raw_output = test_result.get("raw_output", "")
+            # Parse output
+            output = result.stdout + result.stderr
             
-            tests_passed = (failed == 0 and passed > 0)
+            # Extract test counts
+            passed, failed, total = self._parse_pytest_output(output)
+            
+            tests_passed = (result.returncode == 0 and failed == 0 and passed > 0)
             
             print(f"   📊 Test Results: {passed}/{total} passed")
             
-            # Step 3: Generate feedback
             if tests_passed:
-                # All tests passed!
-                feedback = f"✅ All {passed} tests passed successfully!"
+                # Success!
+                feedback = f"✅ All {passed} tests passed!"
                 
                 log_experiment(
                     agent_name=self.name,
-                    model_used=DEFAULT_MODEL,
+                    model_used="pytest",
                     action=ActionType.DEBUG,
                     details={
                         "file_validated": file_path,
                         "test_file": test_file,
-                        "input_prompt": f"Validating {file_path} with {test_file}",
+                        "input_prompt": f"Running tests for {file_path}",
                         "output_response": feedback,
                         "passed": passed,
                         "failed": failed,
-                        "total": total
+                        "total": total,
+                        "exit_code": result.returncode
                     },
                     status="SUCCESS"
                 )
@@ -167,38 +152,43 @@ Be clear, concise, and actionable."""
                 }
             
             else:
-                # Tests failed - need to provide feedback
+                # Tests failed
                 print(f"   ❌ {failed} test(s) failed")
                 
                 # Extract failure messages
-                failure_messages = extract_failure_messages(raw_output)
+                failures = self._extract_failure_messages(output)
                 
-                # TODO: Optionally use LLM to analyze failures
-                # For complex failures, the LLM can provide insights
-                if failed > 3 or not failure_messages:
-                    # Use LLM for complex analysis
-                    feedback = self._analyze_failures_with_llm(
-                        file_path, test_file, raw_output, failure_messages
-                    )
-                else:
-                    # Simple feedback for straightforward failures
-                    feedback = self._format_simple_feedback(failure_messages, passed, failed)
+                # Create feedback
+                feedback_lines = [
+                    f"❌ {failed} test(s) failed, {passed} passed.",
+                    "\nFailures:"
+                ]
+                
+                for idx, msg in enumerate(failures[:5], 1):
+                    feedback_lines.append(f"{idx}. {msg}")
+                
+                if len(failures) > 5:
+                    feedback_lines.append(f"... and {len(failures) - 5} more")
+                
+                feedback_lines.append("\nPlease fix these issues and try again.")
+                feedback = "\n".join(feedback_lines)
                 
                 log_experiment(
                     agent_name=self.name,
-                    model_used=DEFAULT_MODEL,
+                    model_used="pytest",
                     action=ActionType.DEBUG,
                     details={
                         "file_validated": file_path,
                         "test_file": test_file,
-                        "input_prompt": f"Validating {file_path} with {test_file}",
+                        "input_prompt": f"Running tests for {file_path}",
                         "output_response": feedback,
                         "passed": passed,
                         "failed": failed,
                         "total": total,
-                        "failure_messages": failure_messages
+                        "failures": failures,
+                        "exit_code": result.returncode
                     },
-                    status="SUCCESS"  # Validation succeeded, even though tests failed
+                    status="SUCCESS"
                 )
                 
                 return {
@@ -208,8 +198,31 @@ Be clear, concise, and actionable."""
                     "failed": failed,
                     "total": total,
                     "feedback": feedback,
-                    "failures": failure_messages
+                    "failures": failures
                 }
+            
+        except subprocess.TimeoutExpired:
+            error_msg = "Tests timed out after 30 seconds"
+            print(f"   ❌ {error_msg}")
+            
+            log_experiment(
+                agent_name=self.name,
+                model_used="pytest",
+                action=ActionType.DEBUG,
+                details={
+                    "file_validated": file_path,
+                    "test_file": test_file,
+                    "input_prompt": f"Running tests for {file_path}",
+                    "output_response": error_msg
+                },
+                status="FAILURE"
+            )
+            
+            return {
+                "success": False,
+                "tests_passed": False,
+                "error": error_msg
+            }
             
         except Exception as e:
             error_msg = f"Error validating {file_path}: {str(e)}"
@@ -217,12 +230,12 @@ Be clear, concise, and actionable."""
             
             log_experiment(
                 agent_name=self.name,
-                model_used=DEFAULT_MODEL,
+                model_used="pytest",
                 action=ActionType.DEBUG,
                 details={
                     "file_validated": file_path,
                     "test_file": test_file,
-                    "input_prompt": "Validation failed",
+                    "input_prompt": f"Running tests for {file_path}",
                     "output_response": error_msg,
                     "error": str(e)
                 },
@@ -235,112 +248,219 @@ Be clear, concise, and actionable."""
                 "error": error_msg
             }
     
-    def _format_simple_feedback(self, failure_messages: list, passed: int, failed: int) -> str:
-        """Format simple feedback for straightforward test failures."""
-        feedback_lines = [
-            f"❌ {failed} test(s) failed, {passed} passed.",
-            "\nFailures:"
-        ]
-        
-        for idx, msg in enumerate(failure_messages[:5], 1):  # Limit to 5
-            feedback_lines.append(f"{idx}. {msg}")
-        
-        if len(failure_messages) > 5:
-            feedback_lines.append(f"... and {len(failure_messages) - 5} more failures")
-        
-        feedback_lines.append("\nPlease fix these issues and try again.")
-        
-        return "\n".join(feedback_lines)
-    
-    def _analyze_failures_with_llm(self, file_path: str, test_file: str, 
-                                    raw_output: str, failure_messages: list) -> str:
+    def _generate_tests(self, file_path: str, test_file: str) -> Dict:
         """
-        Use LLM to analyze complex test failures.
+        Generate test file using LLM based on code analysis.
+        
+        This is CRITICAL: The LLM must understand what code SHOULD do,
+        not just what it does currently.
         
         Args:
             file_path: Path to code file
-            test_file: Path to test file
-            raw_output: Raw pytest output
-            failure_messages: Extracted failure messages
+            test_file: Path where test should be created
             
         Returns:
-            LLM-generated feedback
+            Dictionary with generation result
         """
-        # TODO: Team member can implement this for more sophisticated analysis
-        # For now, return formatted failures
-        
-        user_prompt = f"""Analyze these test failures and provide clear feedback.
+        try:
+            # Read the code
+            code_content = read_file(file_path)
+            
+            # Get module name from file path
+            module_name = Path(file_path).stem
+            
+            # Construct prompt for test generation
+            user_prompt = f"""You are a test generation expert. Your task is to generate comprehensive unit tests.
 
-CODE FILE: {file_path}
-TEST FILE: {test_file}
+CRITICAL INSTRUCTIONS:
+1. Analyze the code and understand what each function/class SHOULD do based on:
+   - Function names (e.g., "calculate_average" should compute average, not sum)
+   - Parameter names and types
+   - Return value expectations
+   - Business logic inferred from context
 
-TEST OUTPUT:
-{raw_output[:1000]}  # Limit to first 1000 chars
+2. Generate tests that validate CORRECT behavior, not current buggy behavior
+3. Include edge cases (empty inputs, zero, negative numbers, etc.)
+4. Test ALL functions and classes in the module
 
-FAILURES:
-{chr(10).join(failure_messages[:5])}
+CODE TO TEST:
+FILE: {module_name}.py
 
-Provide:
-1. What went wrong (in simple terms)
-2. What needs to be fixed in the code
-3. Specific suggestions for the Fixer agent
+```python
+{code_content}
+```
 
-Be concise and actionable.
+EXAMPLE FORMAT:
+```python
+from {module_name} import function_name, ClassName
+
+def test_function_name():
+    # Test normal cases
+    assert function_name(input) == expected_output
+    
+    # Test edge cases
+    assert function_name(edge_case) == expected_edge_result
+
+def test_class_method():
+    obj = ClassName()
+    assert obj.method(input) == expected_output
+```
+
+REQUIREMENTS:
+1. Import ALL functions and classes from {module_name}
+2. Create comprehensive test functions (test_*)
+3. Use assert statements with expected CORRECT values
+4. Cover normal cases and edge cases
+5. Output ONLY the complete Python test code, no explanations
+
+Generate the complete test file now:
 """
+
+            # Call LLM
+            response = self.llm.invoke(user_prompt)
+            test_code = response.content
+            
+            # Extract code from response
+            test_code = self._extract_code_from_response(test_code)
+            
+            # Validate we got actual test code
+            if "def test_" not in test_code or "assert" not in test_code:
+                return {
+                    "success": False,
+                    "error": "Generated code doesn't contain valid tests"
+                }
+            
+            # Write test file
+            write_file(test_file, test_code)
+            
+            # Log
+            log_experiment(
+                agent_name=self.name,
+                model_used=DEFAULT_MODEL,
+                action=ActionType.GENERATION,
+                details={
+                    "file_tested": file_path,
+                    "test_file": test_file,
+                    "input_prompt": user_prompt,
+                    "output_response": test_code,
+                    "test_count": test_code.count("def test_")
+                },
+                status="SUCCESS"
+            )
+            
+            return {
+                "success": True,
+                "test_file": test_file,
+                "test_code": test_code
+            }
+            
+        except Exception as e:
+            error_msg = f"Error generating tests: {str(e)}"
+            
+            log_experiment(
+                agent_name=self.name,
+                model_used=DEFAULT_MODEL,
+                action=ActionType.GENERATION,
+                details={
+                    "file_tested": file_path,
+                    "test_file": test_file,
+                    "input_prompt": "Test generation failed",
+                    "output_response": error_msg,
+                    "error": str(e)
+                },
+                status="FAILURE"
+            )
+            
+            return {
+                "success": False,
+                "error": error_msg
+            }
+    
+    def _extract_code_from_response(self, response: str) -> str:
+        """Extract Python code from LLM response."""
+        # Try to extract from ```python``` blocks
+        pattern = r'```python\s*\n(.*?)\n```'
+        matches = re.findall(pattern, response, re.DOTALL)
         
-        # PLACEHOLDER: Implement actual LLM call if needed
-        # messages = [
-        #     {"role": "system", "content": self.system_prompt},
-        #     {"role": "user", "content": user_prompt}
-        # ]
-        # response = self.llm.invoke(messages)
-        # return response.content
+        if matches:
+            return matches[0].strip()
         
-        # For now, return simple formatted feedback
-        return self._format_simple_feedback(failure_messages, 0, len(failure_messages))
+        # Try just ``` blocks
+        pattern = r'```\s*\n(.*?)\n```'
+        matches = re.findall(pattern, response, re.DOTALL)
+        
+        if matches:
+            return matches[0].strip()
+        
+        # Return whole response
+        return response.strip()
+    
+    def _parse_pytest_output(self, output: str) -> tuple:
+        """Parse pytest output to extract test counts."""
+        passed = 0
+        failed = 0
+        
+        # Look for summary line
+        match = re.search(r'(\d+) passed', output)
+        if match:
+            passed = int(match.group(1))
+        
+        match = re.search(r'(\d+) failed', output)
+        if match:
+            failed = int(match.group(1))
+        
+        total = passed + failed
+        
+        return passed, failed, total
+    
+    def _extract_failure_messages(self, output: str) -> list:
+        """Extract failure messages from pytest output."""
+        failures = []
+        
+        # Look for FAILED lines
+        for line in output.split('\n'):
+            if 'FAILED' in line or 'AssertionError' in line:
+                failures.append(line.strip())
+        
+        # Look for assertion details
+        lines = output.split('\n')
+        for i, line in enumerate(lines):
+            if 'assert' in line.lower() and i > 0:
+                # Get some context
+                context = lines[max(0, i-1):min(len(lines), i+3)]
+                failures.append(" | ".join(context))
+        
+        return list(set(failures))[:10]  # Unique, limit to 10
 
 
-# Test the agent
 if __name__ == "__main__":
     print("🧪 Testing Judge Agent...\n")
     
     from src.tools.file_manager import write_file, delete_file
     
-    # Create a simple code and test file
+    # Create test code
     code = """
 def add(a, b):
+    '''Add two numbers'''
     return a + b
 
 def subtract(a, b):
+    '''Subtract b from a'''
     return a - b
 """
     
-    test_code = """
-from test_judge import add, subtract
-
-def test_add():
-    assert add(2, 3) == 5
-    assert add(0, 0) == 0
-
-def test_subtract():
-    assert subtract(5, 3) == 2
-    assert subtract(0, 0) == 0
-"""
+    write_file("test_judge_demo.py", code)
     
-    write_file("test_judge.py", code)
-    write_file("test_test_judge.py", test_code)
-    
-    # Test the agent
     agent = JudgeAgent()
-    result = agent.validate("test_judge.py", "test_test_judge.py")
+    result = agent.validate("test_judge_demo.py", "test_test_judge_demo.py")
     
     print(f"\n📊 Result:")
     print(f"   Success: {result['success']}")
     print(f"   Tests Passed: {result.get('tests_passed', False)}")
-    print(f"   Passed/Total: {result.get('passed', 0)}/{result.get('total', 0)}")
     
     # Cleanup
-    delete_file("test_judge.py")
-    delete_file("test_test_judge.py")
+    delete_file("test_judge_demo.py")
+    if Path(SANDBOX_DIR / "test_test_judge_demo.py").exists():
+        delete_file("test_test_judge_demo.py")
     
     print("\n✅ Judge test complete!")

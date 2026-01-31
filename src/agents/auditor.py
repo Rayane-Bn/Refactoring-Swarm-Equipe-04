@@ -1,29 +1,19 @@
 """
 Auditor Agent - Analyzes code and identifies issues.
-
-This agent reads Python code, runs static analysis, and produces
-a structured report of issues that need to be fixed.
-
-RESPONSIBILITIES:
-- Read and analyze Python code
-- Use Pylint/analyzer tools to detect issues
-- Use LLM to understand context and prioritize issues
-- Return structured list of issues with descriptions
-
-TODO: Team member needs to implement the analyze() method
+Uses the CodeAnalyzer tool and Google Gemini LLM.
 """
 import sys
 from pathlib import Path
 from typing import Dict, List
+import json
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from src.tools.analyzer import CodeAnalyzer
 from src.tools.file_manager import read_file
-from src.tools.analyzer import analyze_code_quality, get_top_issues
 from src.utils.logger import log_experiment, ActionType
 from src.utils.config import GOOGLE_API_KEY, DEFAULT_MODEL
 
-# TODO: Import LangChain / Google Gemini
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 
@@ -36,51 +26,31 @@ class AuditorAgent:
         """Initialize the Auditor agent."""
         self.name = "Auditor"
         
-        # TODO: Initialize LLM
+        # Initialize LLM
         self.llm = ChatGoogleGenerativeAI(
             model=DEFAULT_MODEL,
             google_api_key=GOOGLE_API_KEY,
-            temperature=0.1  # Low temperature for consistent analysis
+            temperature=0.1
         )
         
-        # TODO: Load prompt from src/prompts/auditor_prompt.txt
+        # Load system prompt
         self.system_prompt = self._load_prompt()
         
         print(f"✅ {self.name} agent initialized")
     
     def _load_prompt(self) -> str:
-        """
-        Load the system prompt for the Auditor.
-        
-        Returns:
-            System prompt as string
-        """
+        """Load the system prompt for the Auditor."""
         prompt_path = Path(__file__).parent.parent / "prompts" / "auditor_prompt.txt"
         
         if prompt_path.exists():
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 return f.read()
         else:
-            # Fallback default prompt if file doesn't exist yet
+            # Fallback
             return """You are an expert Python code auditor.
-
-Your task is to analyze Python code and identify issues that need to be fixed.
-
-Focus on:
-1. Syntax errors
-2. Logic bugs
-3. Missing docstrings
-4. Poor variable naming
-5. Unused variables
-6. Code quality issues
-
-Provide a clear, structured list of issues with:
-- Line number
-- Issue type
-- Description
-- Suggested fix
-
-Be specific and actionable."""
+Analyze code and identify issues that need fixing.
+Focus on: bugs, missing docstrings, poor naming, unused variables, code quality.
+Provide clear, actionable feedback."""
     
     def analyze(self, file_path: str) -> Dict:
         """
@@ -92,8 +62,8 @@ Be specific and actionable."""
         Returns:
             Dictionary containing:
             - success: bool
-            - issues: list of issues found
-            - quality_score: float (0-10)
+            - issues: list of issues
+            - quality_score: float
             - summary: str
         """
         print(f"🔍 {self.name}: Analyzing {file_path}...")
@@ -102,59 +72,147 @@ Be specific and actionable."""
             # Step 1: Read the code
             code_content = read_file(file_path)
             
-            # Step 2: Run static analysis (Pylint)
-            analysis = analyze_code_quality(file_path)
-            pylint_score = analysis.get("score", 0.0)
-            pylint_issues = analysis.get("issues_by_category", {})
+            # Step 2: Run static analysis with CodeAnalyzer
+            analyzer = CodeAnalyzer(file_path)
+            analysis_results = analyzer.analyze()
             
-            # Step 3: Use LLM to provide deeper analysis
-            # TODO: Team member needs to implement this part
-            # Construct prompt with code and Pylint results
-            user_prompt = f"""Analyze this Python code and the Pylint results.
+            # Step 3: Generate report from analyzer
+            report = analyzer.generate_report()
+            
+            # Step 4: Extract key information
+            syntax_valid = analysis_results['syntax']['valid']
+            
+            if not syntax_valid:
+                # Syntax error - critical issue
+                print(f"   ❌ Syntax error detected!")
+                issues = [{
+                    "severity": "critical",
+                    "type": "syntax",
+                    "line": analysis_results['syntax']['errors'][0]['line'],
+                    "message": analysis_results['syntax']['message']
+                }]
+                
+                result = {
+                    "success": True,
+                    "issues": issues,
+                    "quality_score": 0.0,
+                    "summary": "Critical syntax error prevents execution",
+                    "file_path": file_path
+                }
+                
+                # Log
+                log_experiment(
+                    agent_name=self.name,
+                    model_used="static_analysis",
+                    action=ActionType.ANALYSIS,
+                    details={
+                        "file_analyzed": file_path,
+                        "input_prompt": "Syntax check",
+                        "output_response": analysis_results['syntax']['message'],
+                        "syntax_valid": False
+                    },
+                    status="SUCCESS"
+                )
+                
+                return result
+            
+            # Step 5: Use LLM to provide deeper analysis
+            user_prompt = f"""Analyze this Python code file and provide a detailed assessment.
 
 FILE: {file_path}
-PYLINT SCORE: {pylint_score}/10
 
 CODE:
 ```python
 {code_content}
 ```
 
-PYLINT ISSUES:
-{self._format_pylint_issues(pylint_issues)}
+STATIC ANALYSIS REPORT:
+{report}
 
-Please provide:
-1. A summary of the main problems
-2. Prioritized list of issues to fix (most critical first)
-3. Specific recommendations for improvement
+Based on the code and static analysis, provide a JSON response with:
+1. A brief summary of code quality
+2. List of issues found (syntax, style, bugs, design problems)
+3. Priority order for fixes
+
+Format your response as valid JSON only, no markdown.
 """
 
             # Call LLM
-            messages = [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
+            response = self.llm.invoke(user_prompt)
+            llm_output = response.content
             
-            # TODO: Implement actual LLM call
-            # For now, this is a placeholder structure
-            # response = self.llm.invoke(messages)
-            # llm_analysis = response.content
+            # Try to parse LLM response as JSON
+            try:
+                # Remove markdown code blocks if present
+                clean_output = llm_output.strip()
+                if clean_output.startswith("```json"):
+                    clean_output = clean_output[7:]
+                if clean_output.startswith("```"):
+                    clean_output = clean_output[3:]
+                if clean_output.endswith("```"):
+                    clean_output = clean_output[:-3]
+                clean_output = clean_output.strip()
+                
+                llm_analysis = json.loads(clean_output)
+                summary = llm_analysis.get("summary", "Code analyzed")
+                llm_issues = llm_analysis.get("issues", [])
+            except json.JSONDecodeError:
+                # If LLM doesn't return JSON, use text summary
+                summary = llm_output[:200]
+                llm_issues = []
             
-            # PLACEHOLDER: Remove this when implementing real LLM call
-            llm_analysis = f"Analysis of {file_path}: Found {len(self._extract_all_issues(pylint_issues))} issues based on Pylint scan."
+            # Step 6: Combine static analysis issues with LLM insights
+            all_issues = []
             
-            # Step 4: Combine results
-            all_issues = self._extract_all_issues(pylint_issues)
+            # Add style issues
+            for issue in analysis_results.get('style', {}).get('issues', [])[:5]:
+                all_issues.append({
+                    "severity": "minor",
+                    "type": "style",
+                    "line": issue['line'],
+                    "message": issue['message']
+                })
+            
+            # Add security issues
+            for issue in analysis_results.get('security', {}).get('issues', []):
+                all_issues.append({
+                    "severity": issue['severity'],
+                    "type": "security",
+                    "line": 0,
+                    "message": issue['message']
+                })
+            
+            # Add complexity issues
+            complexity_data = analysis_results.get('complexity', {})
+            for func in complexity_data.get('functions', []):
+                if func['complexity'] > 10:
+                    all_issues.append({
+                        "severity": "major",
+                        "type": "complexity",
+                        "line": func['line'],
+                        "message": f"Function '{func['name']}' has high complexity: {func['complexity']}"
+                    })
+            
+            # Add LLM-identified issues
+            all_issues.extend(llm_issues[:5])
+            
+            # Calculate a quality score (0-10)
+            # Based on: syntax, style issues, security issues, complexity
+            quality_score = 10.0
+            quality_score -= len(analysis_results.get('style', {}).get('issues', [])) * 0.1
+            quality_score -= len(analysis_results.get('security', {}).get('issues', [])) * 1.0
+            quality_score -= (complexity_data.get('overall_complexity', 0) / 10) * 0.5
+            quality_score = max(0.0, min(10.0, quality_score))
             
             result = {
                 "success": True,
                 "issues": all_issues,
-                "quality_score": pylint_score,
-                "summary": llm_analysis,
+                "quality_score": quality_score,
+                "summary": summary,
                 "file_path": file_path
             }
             
-            # Step 5: Log the interaction
+            # Log the interaction
             log_experiment(
                 agent_name=self.name,
                 model_used=DEFAULT_MODEL,
@@ -162,14 +220,14 @@ Please provide:
                 details={
                     "file_analyzed": file_path,
                     "input_prompt": user_prompt,
-                    "output_response": llm_analysis,
-                    "pylint_score": pylint_score,
+                    "output_response": llm_output,
+                    "quality_score": quality_score,
                     "issues_found": len(all_issues)
                 },
                 status="SUCCESS"
             )
             
-            print(f"   ✅ Analysis complete: {len(all_issues)} issues found, score: {pylint_score:.2f}/10")
+            print(f"   ✅ Analysis complete: {len(all_issues)} issues, score: {quality_score:.2f}/10")
             
             return result
             
@@ -177,14 +235,13 @@ Please provide:
             error_msg = f"Error analyzing {file_path}: {str(e)}"
             print(f"   ❌ {error_msg}")
             
-            # Log the failure
             log_experiment(
                 agent_name=self.name,
                 model_used=DEFAULT_MODEL,
                 action=ActionType.ANALYSIS,
                 details={
                     "file_analyzed": file_path,
-                    "input_prompt": "Failed before prompt creation",
+                    "input_prompt": "Failed before analysis",
                     "output_response": error_msg,
                     "error": str(e)
                 },
@@ -197,42 +254,13 @@ Please provide:
                 "issues": [],
                 "quality_score": 0.0
             }
-    
-    def _format_pylint_issues(self, issues_by_category: Dict) -> str:
-        """Format Pylint issues for display in prompt."""
-        lines = []
-        for category, issue_list in issues_by_category.items():
-            if issue_list:
-                lines.append(f"\n{category.upper()}:")
-                for issue in issue_list[:5]:  # Limit to top 5 per category
-                    lines.append(f"  Line {issue['line']}: {issue['message']}")
-        return "\n".join(lines) if lines else "No major issues detected by Pylint"
-    
-    def _extract_all_issues(self, issues_by_category: Dict) -> List[Dict]:
-        """Extract all issues into a flat list."""
-        all_issues = []
-        priority_order = ["fatal", "error", "warning", "refactor", "convention"]
-        
-        for category in priority_order:
-            if category in issues_by_category:
-                for issue in issues_by_category[category]:
-                    all_issues.append({
-                        "severity": category,
-                        "line": issue.get("line", 0),
-                        "message": issue.get("message", ""),
-                        "symbol": issue.get("symbol", "")
-                    })
-        
-        return all_issues
 
 
-# Test the agent
 if __name__ == "__main__":
     print("🧪 Testing Auditor Agent...\n")
     
     from src.tools.file_manager import write_file, delete_file
     
-    # Create a test file
     test_code = """
 def calculate(x,y):
     result=x+y
@@ -243,7 +271,6 @@ unused_var = 42
     
     write_file("test_audit.py", test_code)
     
-    # Test the agent
     agent = AuditorAgent()
     result = agent.analyze("test_audit.py")
     
@@ -252,7 +279,6 @@ unused_var = 42
     print(f"   Issues: {len(result['issues'])}")
     print(f"   Score: {result.get('quality_score', 0):.2f}/10")
     
-    # Cleanup
     delete_file("test_audit.py")
     
     print("\n✅ Auditor test complete!")

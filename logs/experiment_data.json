@@ -1,11 +1,229 @@
 [
-  {
-    "id": "9e82e9b0-9b43-4a78-af43-d5d5ef848a2f",
-    "timestamp": "2025-12-26T01:26:41.177789",
-    "agent": "System",
-    "model": "unknown",
-    "action": "STARTUP",
-    "details": "Target: ./sandbox",
-    "status": "INFO"
-  }
+    {
+        "id": "9e82e9b0-9b43-4a78-af43-d5d5ef848a2f",
+        "timestamp": "2025-12-26T01:26:41.177789",
+        "agent": "System",
+        "model": "unknown",
+        "action": "STARTUP",
+        "details": "Target: ./sandbox",
+        "status": "INFO"
+    },
+    {
+        "id": "dc55f19a-3fd0-4d50-91a6-c60d9e80b40e",
+        "timestamp": "2026-01-31T15:39:19.518802",
+        "agent": "Auditor",
+        "model": "gemini-1.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test_audit.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing test_audit.py: File not found: test_audit.py",
+            "error": "File not found: test_audit.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "c8b6196c-9d66-4064-aec3-7663390750e7",
+        "timestamp": "2026-01-31T23:59:31.797713",
+        "agent": "Auditor",
+        "model": "gemini-2.0-flash-exp",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test_audit.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing test_audit.py: File not found: test_audit.py",
+            "error": "File not found: test_audit.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "c71851e1-879e-4647-b690-abbfe5b8c5e1",
+        "timestamp": "2026-02-01T00:20:47.258388",
+        "agent": "Auditor",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test_audit.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing test_audit.py: File not found: test_audit.py",
+            "error": "File not found: test_audit.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "8dd64d89-ffa0-4b2a-aec8-270325e9b0c1",
+        "timestamp": "2026-02-01T00:21:32.984229",
+        "agent": "Fixer",
+        "model": "models/gemini-2.5-flash",
+        "action": "FIX",
+        "details": {
+            "file_fixed": "test_fix.py",
+            "input_prompt": "Fix the following Python code based on the audit report.\n\nFILE: test_fix.py\nCURRENT QUALITY SCORE: 4.5/10\n\nISSUES TO FIX:\n1. [MINOR] style (Line 2): Missing docstring\n2. [MINOR] style (Line 2): Bad spacing\n\nAUDIT SUMMARY:\nFunction needs docstring and formatting\n\nORIGINAL CODE:\n```python\n\ndef calculate(x,y):\n    result=x+y\n    return result\n\n```\n\nREQUIREMENTS:\n1. Fix ALL listed issues\n2. Add proper docstrings (Google style) for all functions and classes\n3. Use snake_case for functions and variables\n4. Improve code readability\n5. Ensure code is syntactically correct\n6. Return the COMPLETE corrected code\n\nOUTPUT FORMAT:\nReturn ONLY the fixed Python code wrapped in ```python``` code blocks.\nDo NOT include any explanations or comments about what you changed.\n",
+            "output_response": "```python\ndef calculate(x, y):\n    \"\"\"Calculates the sum of two numbers.\n\n    Args:\n        x: The first number.\n        y: The second number.\n\n    Returns:\n        The sum of x and y.\n    \"\"\"\n    result = x + y\n    return result\n```",
+            "issues_addressed": 2,
+            "original_score": 4.5,
+            "code_length_before": 54,
+            "code_length_after": 219
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "4b8a32be-b109-4dda-adeb-3ed960914e53",
+        "timestamp": "2026-02-01T00:22:10.148018",
+        "agent": "Judge",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_GEN",
+        "details": {
+            "file_tested": "test_judge_demo.py",
+            "test_file": "test_test_judge_demo.py",
+            "input_prompt": "You are a test generation expert. Your task is to generate comprehensive unit tests.\n\nCRITICAL INSTRUCTIONS:\n1. Analyze the code and understand what each function/class SHOULD do based on:\n   - Function names (e.g., \"calculate_average\" should compute average, not sum)\n   - Parameter names and types\n   - Return value expectations\n   - Business logic inferred from context\n\n2. Generate tests that validate CORRECT behavior, not current buggy behavior\n3. Include edge cases (empty inputs, zero, negative numbers, etc.)\n4. Test ALL functions and classes in the module\n\nCODE TO TEST:\nFILE: test_judge_demo.py\n\n```python\n\ndef add(a, b):\n    '''Add two numbers'''\n    return a + b\n\ndef subtract(a, b):\n    '''Subtract b from a'''\n    return a - b\n\n```\n\nEXAMPLE FORMAT:\n```python\nfrom test_judge_demo import function_name, ClassName\n\ndef test_function_name():\n    # Test normal cases\n    assert function_name(input) == expected_output\n    \n    # Test edge cases\n    assert function_name(edge_case) == expected_edge_result\n\ndef test_class_method():\n    obj = ClassName()\n    assert obj.method(input) == expected_output\n```\n\nREQUIREMENTS:\n1. Import ALL functions and classes from test_judge_demo\n2. Create comprehensive test functions (test_*)\n3. Use assert statements with expected CORRECT values\n4. Cover normal cases and edge cases\n5. Output ONLY the complete Python test code, no explanations\n\nGenerate the complete test file now:\n",
+            "output_response": "from test_judge_demo import add, subtract\n\ndef test_add():\n    # Test normal cases with positive integers\n    assert add(1, 2) == 3\n    assert add(10, 20) == 30\n\n    # Test normal cases with negative integers\n    assert add(-1, -2) == -3\n    assert add(-10, -20) == -30\n\n    # Test normal cases with mixed positive and negative integers\n    assert add(5, -3) == 2\n    assert add(-5, 3) == -2\n\n    # Test edge cases with zero\n    assert add(0, 5) == 5\n    assert add(5, 0) == 5\n    assert add(0, 0) == 0\n\n    # Test edge cases with floating-point numbers\n    assert add(1.5, 2.5) == 4.0\n    assert add(-0.1, 0.1) == 0.0\n    assert add(10.2, -3.1) == 7.1\n\n    # Test with large numbers\n    assert add(1000000, 1) == 1000001\n    assert add(-1000000, -1) == -1000001\n\ndef test_subtract():\n    # Test normal cases with positive integers\n    assert subtract(5, 2) == 3\n    assert subtract(20, 10) == 10\n    assert subtract(2, 5) == -3 # Result is negative\n\n    # Test normal cases with negative integers\n    assert subtract(-5, -2) == -3 # -5 - (-2) = -5 + 2\n    assert subtract(-2, -5) == 3  # -2 - (-5) = -2 + 5\n\n    # Test normal cases with mixed positive and negative integers\n    assert subtract(5, -2) == 7  # 5 - (-2) = 5 + 2\n    assert subtract(-5, 2) == -7 # -5 - 2\n\n    # Test edge cases with zero\n    assert subtract(0, 5) == -5\n    assert subtract(5, 0) == 5\n    assert subtract(0, 0) == 0\n\n    # Test edge cases where numbers are equal\n    assert subtract(7, 7) == 0\n    assert subtract(-3, -3) == 0\n\n    # Test edge cases with floating-point numbers\n    assert subtract(4.5, 2.0) == 2.5\n    assert subtract(2.0, 4.5) == -2.5\n    assert subtract(0.1, 0.2) == -0.1\n    assert subtract(-0.5, -0.1) == -0.4\n\n    # Test with large numbers\n    assert subtract(1000000, 1) == 999999\n    assert subtract(1, 1000000) == -999999",
+            "test_count": 2
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "6d59edc9-32f7-4084-8224-8bae784521a7",
+        "timestamp": "2026-02-01T00:22:10.678926",
+        "agent": "Judge",
+        "model": "pytest",
+        "action": "DEBUG",
+        "details": {
+            "file_validated": "test_judge_demo.py",
+            "test_file": "test_test_judge_demo.py",
+            "input_prompt": "Running tests for test_judge_demo.py",
+            "output_response": "✅ All 2 tests passed!",
+            "passed": 2,
+            "failed": 0,
+            "total": 2,
+            "exit_code": 0
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "97627786-a407-46aa-b717-dc8312520630",
+        "timestamp": "2026-02-01T00:33:08.355822",
+        "agent": "Auditor",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test_dataset/calculator.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing test_dataset/calculator.py: File not found: test_dataset/calculator.py",
+            "error": "File not found: test_dataset/calculator.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "7047f52c-5fc4-4584-ba77-bf708ad411cf",
+        "timestamp": "2026-02-01T00:33:08.358901",
+        "agent": "Auditor",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test_dataset/data_processor.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing test_dataset/data_processor.py: File not found: test_dataset/data_processor.py",
+            "error": "File not found: test_dataset/data_processor.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "9593330c-082e-4afe-8085-95ee25a906bc",
+        "timestamp": "2026-02-01T00:33:08.367062",
+        "agent": "Auditor",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test_dataset/string_utils.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing test_dataset/string_utils.py: File not found: test_dataset/string_utils.py",
+            "error": "File not found: test_dataset/string_utils.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "6797758f-7a88-45fb-abc3-af94eb5e3c0a",
+        "timestamp": "2026-02-01T00:35:36.443138",
+        "agent": "Auditor",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test_dataset/calculator.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing test_dataset/calculator.py: File not found: test_dataset/calculator.py",
+            "error": "File not found: test_dataset/calculator.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "9dadd6c4-b841-4bac-83b6-d9b21153d89d",
+        "timestamp": "2026-02-01T00:35:36.454646",
+        "agent": "Auditor",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test_dataset/data_processor.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing test_dataset/data_processor.py: File not found: test_dataset/data_processor.py",
+            "error": "File not found: test_dataset/data_processor.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "8768b848-8b0d-4c2c-b875-3dd464cc06db",
+        "timestamp": "2026-02-01T00:35:36.465310",
+        "agent": "Auditor",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test_dataset/string_utils.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing test_dataset/string_utils.py: File not found: test_dataset/string_utils.py",
+            "error": "File not found: test_dataset/string_utils.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "b550d7b9-d826-447a-a335-e2d64fa03dc9",
+        "timestamp": "2026-02-01T00:39:57.742483",
+        "agent": "Auditor",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "calculator.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing calculator.py: File not found: calculator.py",
+            "error": "File not found: calculator.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "f99bcb9a-484b-4cf6-920d-b0f40328109c",
+        "timestamp": "2026-02-01T00:39:57.752480",
+        "agent": "Auditor",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "data_processor.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing data_processor.py: File not found: data_processor.py",
+            "error": "File not found: data_processor.py"
+        },
+        "status": "FAILURE"
+    },
+    {
+        "id": "dbbc5afe-7288-4fcf-a2a8-9ae3e05f8334",
+        "timestamp": "2026-02-01T00:39:57.758847",
+        "agent": "Auditor",
+        "model": "models/gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "string_utils.py",
+            "input_prompt": "Failed before analysis",
+            "output_response": "Error analyzing string_utils.py: File not found: string_utils.py",
+            "error": "File not found: string_utils.py"
+        },
+        "status": "FAILURE"
+    }
 ]

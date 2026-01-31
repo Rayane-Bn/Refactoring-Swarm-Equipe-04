@@ -19,7 +19,7 @@ if not GOOGLE_API_KEY:
     )
 
 # ===== Model Configuration =====
-DEFAULT_MODEL = "gemini-1.5-flash"  # Fast and cost-effective for most tasks
+DEFAULT_MODEL = "models/gemini-2.5-flash"  # Fast and cost-effective for most tasks
 # Alternative: "gemini-1.5-pro" for more complex reasoning (if needed)
 
 # ===== Project Paths =====

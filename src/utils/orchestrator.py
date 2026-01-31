@@ -3,7 +3,7 @@ Orchestrator - Coordinates the refactoring workflow between agents.
 
 This module manages the execution flow:
 1. Auditor analyzes code
-2. Fixer corrects issues
+2. Fixer corrects issues  
 3. Judge validates with tests
 4. Loop back if tests fail (max 10 iterations)
 """
@@ -17,10 +17,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.utils.config import MAX_ITERATIONS, SANDBOX_DIR
 from src.tools.file_manager import list_python_files, read_file, get_file_info
-from src.tools.analyzer import run_pylint, analyze_code_quality
-from src.tools.tester import run_pytest, check_tests_exist
+from src.tools.analyzer import CodeAnalyzer  # Fixed: use CodeAnalyzer class
 
-# Import agents (will be implemented by team members)
+# Import agents
 from src.agents.auditor import AuditorAgent
 from src.agents.fixer import FixerAgent
 from src.agents.judge import JudgeAgent
@@ -68,7 +67,7 @@ class Orchestrator:
         # Get all Python files in target directory
         all_files = list_python_files(str(self.target_dir.relative_to(SANDBOX_DIR)))
         
-        # Filter out test files (files starting with 'test_' or ending with '_test.py')
+        # Filter out test files
         code_files = [
             f for f in all_files 
             if not (Path(f).name.startswith('test_') or Path(f).name.endswith('_test.py'))
@@ -94,8 +93,8 @@ class Orchestrator:
         
         # Try common test file naming patterns
         possible_names = [
-            f"test_{code_path.name}",  # test_module.py
-            f"{code_path.stem}_test.py"  # module_test.py
+            f"test_{code_path.name}",
+            f"{code_path.stem}_test.py"
         ]
         
         for test_name in possible_names:
@@ -168,24 +167,26 @@ class Orchestrator:
             "error": None
         }
         
-        # Get initial code quality score
-        initial_analysis = analyze_code_quality(file_path)
-        result["initial_score"] = initial_analysis.get("score", 0.0)
+        # Get initial code quality score using CodeAnalyzer
+        try:
+            analyzer = CodeAnalyzer(str(SANDBOX_DIR / file_path))
+            analyzer.analyze()
+            # Calculate a simple score based on issues found
+            style_issues = analyzer.analysis_results.get('style', {}).get('issues_count', 0)
+            security_issues = analyzer.analysis_results.get('security', {}).get('issues_count', 0)
+            result["initial_score"] = max(0.0, 10.0 - (style_issues * 0.2) - (security_issues * 1.0))
+        except Exception as e:
+            result["initial_score"] = 0.0
         
-        print(f"📊 Initial Pylint Score: {result['initial_score']:.2f}/10")
+        print(f"📊 Initial Quality Score: {result['initial_score']:.2f}/10")
         
         # Find corresponding test file
         test_file = self.find_test_file(file_path)
         result["test_file"] = test_file
         
         if not test_file:
-            print(f"⚠️  WARNING: No test file found for {file_path}")
-            print(f"   Expected: test_{Path(file_path).name} or {Path(file_path).stem}_test.py")
-            result["status"] = "NO_TESTS"
-            result["error"] = "No test file found"
-            return result
-        
-        print(f"✅ Found test file: {test_file}")
+            print(f"ℹ️  No test file found - Judge will generate one")
+            test_file = f"test_{Path(file_path).name}"
         
         # Main refactoring loop (max 10 iterations)
         for iteration in range(1, MAX_ITERATIONS + 1):
@@ -266,22 +267,24 @@ class Orchestrator:
                 break
         
         # Get final code quality score
-        final_analysis = analyze_code_quality(file_path)
-        result["final_score"] = final_analysis.get("score", 0.0)
+        try:
+            analyzer = CodeAnalyzer(str(SANDBOX_DIR / file_path))
+            analyzer.analyze()
+            style_issues = analyzer.analysis_results.get('style', {}).get('issues_count', 0)
+            security_issues = analyzer.analysis_results.get('security', {}).get('issues_count', 0)
+            result["final_score"] = max(0.0, 10.0 - (style_issues * 0.2) - (security_issues * 1.0))
+        except:
+            result["final_score"] = result["initial_score"]
+        
         result["score_improvement"] = result["final_score"] - result["initial_score"]
         
-        print(f"\n📊 Final Pylint Score: {result['final_score']:.2f}/10")
+        print(f"\n📊 Final Quality Score: {result['final_score']:.2f}/10")
         print(f"📈 Improvement: {result['score_improvement']:+.2f}")
         
         return result
     
     def _print_final_summary(self, elapsed_time: float):
-        """
-        Print a final summary of all refactoring results.
-        
-        Args:
-            elapsed_time: Total elapsed time in seconds
-        """
+        """Print a final summary of all refactoring results."""
         print("\n" + "="*70)
         print("📊 FINAL SUMMARY")
         print("="*70)
@@ -307,7 +310,6 @@ class Orchestrator:
         
         print("\n" + "="*70)
         
-        # Overall result
         if self.results["failed"] == 0:
             print("🎉 ALL FILES SUCCESSFULLY REFACTORED!")
         else:
@@ -317,20 +319,18 @@ class Orchestrator:
 
 
 def main():
-    """Test the orchestrator with a sample directory."""
+    """Test the orchestrator."""
     import sys
     
     if len(sys.argv) > 1:
         target = sys.argv[1]
     else:
         print("Usage: python orchestrator.py <target_dir>")
-        print("Example: python orchestrator.py ./sandbox/test_dataset")
         return
     
     orchestrator = Orchestrator(target)
     results = orchestrator.process_all_files()
     
-    # Exit with appropriate code
     if results["failed"] == 0:
         sys.exit(0)
     else:

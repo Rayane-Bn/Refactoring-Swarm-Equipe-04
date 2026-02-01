@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.tools.analyzer import CodeAnalyzer
 from src.tools.file_manager import read_file
 from src.utils.logger import log_experiment, ActionType
+from src.utils.config import SANDBOX_DIR
 from src.utils.config import GOOGLE_API_KEY, DEFAULT_MODEL
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -73,7 +74,7 @@ Provide clear, actionable feedback."""
             code_content = read_file(file_path)
             
             # Step 2: Run static analysis with CodeAnalyzer
-            analyzer = CodeAnalyzer(file_path)
+            analyzer = CodeAnalyzer(str(SANDBOX_DIR / file_path))
             analysis_results = analyzer.analyze()
             
             # Step 3: Generate report from analyzer

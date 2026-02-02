@@ -273,6 +273,11 @@ Generate tests that check what the code SHOULD do, not just what it does."""
             user_prompt = f"""You are a test generation expert. Your task is to generate comprehensive unit tests.
 
 CRITICAL INSTRUCTIONS:
+CRITICAL - PRESERVE CODE STRUCTURE:
+- If you see standalone functions like "def add(x, y):", import: from module import add
+- If you see class methods like "class Calculator: def add(self, x, y):", use: obj = Calculator(); obj.add()
+- DO NOT change standalone functions into class methods
+- Match the EXACT structure of the code as it exists
 1. Analyze the code and understand what each function/class SHOULD do based on:
    - Function names (e.g., "calculate_average" should compute average, not sum)
    - Parameter names and types

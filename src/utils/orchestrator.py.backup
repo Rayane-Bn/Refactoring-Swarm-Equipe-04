@@ -187,9 +187,6 @@ class Orchestrator:
         if not test_file:
             print(f"ℹ️  No test file found - Judge will generate one")
             test_file = f"test_{Path(file_path).name}"
-
-        # Track previous test results for feedback to Fixer
-        previous_test_feedback = None
         
         # Main refactoring loop (max 10 iterations)
         for iteration in range(1, MAX_ITERATIONS + 1):
@@ -222,18 +219,7 @@ class Orchestrator:
             # Step 2: Fixer corrects the code
             print("\n🔧 Step 2: Fixer correcting code...")
             try:
-                # Combine audit result with test feedback from previous iteration
-                combined_feedback = audit_result.copy()
-                if previous_test_feedback:
-                    combined_feedback["test_failures"] = previous_test_feedback
-                    combined_feedback["issues"].extend([{
-                        "severity": "critical",
-                        "type": "test_failure",
-                        "line": 0,
-                        "message": previous_test_feedback
-                    }])
-
-                fix_result = self.fixer.fix(file_path, combined_feedback)
+                fix_result = self.fixer.fix(file_path, audit_result)
                 
                 if not fix_result.get("success", False):
                     result["status"] = "FIX_FAILED"
@@ -267,8 +253,6 @@ class Orchestrator:
                     break
                 else:
                     # Tests failed, continue loop
-                    previous_test_feedback = judge_result.get("feedback", "Tests failed")
-
                     print(f"\n⚠️  Tests failed. Continuing to iteration {iteration + 1}...")
                     
                     if iteration == MAX_ITERATIONS:

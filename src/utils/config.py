@@ -11,15 +11,16 @@ load_dotenv()
 
 # ===== API Configuration =====
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if not GOOGLE_API_KEY:
+if not GROQ_API_KEY:
     raise ValueError(
-        "❌ GOOGLE_API_KEY not found in .env file. "
+        "❌ GROQ_API_KEY not found in .env file. "
         "Please copy .env.example to .env and add your API key."
     )
 
 # ===== Model Configuration =====
-DEFAULT_MODEL = "models/gemini-2.5-flash"  # Fast and cost-effective for most tasks
+DEFAULT_MODEL = "llama-3.3-70b-versatile"  # Fast and cost-effective for most tasks
 # Alternative: "gemini-1.5-pro" for more complex reasoning (if needed)
 
 # ===== Project Paths =====
@@ -43,7 +44,7 @@ def validate_config():
     """Validate that all required configuration is present."""
     errors = []
     
-    if not GOOGLE_API_KEY:
+    if not GROQ_API_KEY:
         errors.append("GOOGLE_API_KEY is missing")
     
     if not SANDBOX_DIR.exists():

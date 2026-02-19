@@ -1,161 +1,123 @@
 """
 Orchestrator - Coordinates the refactoring workflow between agents.
-
-This module manages the execution flow:
-1. Auditor analyzes code
-2. Fixer corrects issues  
-3. Judge validates with tests
-4. Loop back if tests fail (max 10 iterations)
 """
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 import time
 
-# Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.utils.config import MAX_ITERATIONS, SANDBOX_DIR
-from src.tools.file_manager import list_python_files, read_file, get_file_info
-from src.tools.analyzer import CodeAnalyzer  # Fixed: use CodeAnalyzer class
-
-# Import agents
+from src.tools.analyzer import CodeAnalyzer
 from src.agents.auditor import AuditorAgent
 from src.agents.fixer import FixerAgent
 from src.agents.judge import JudgeAgent
 
+# Rate-limit protection: pause between LLM calls
+# Gemini free tier = 15 req/min, 20 req/day on gemini-2.5-flash
+# Each iteration uses 2 LLM calls (Fixer + Judge).
+# With 3s between agents we stay well under the per-minute limit.
+INTER_AGENT_SLEEP = 4   # seconds between Fixer and Judge within one iteration
+INTER_ITER_SLEEP  = 6   # seconds between full iterations
+
 
 class Orchestrator:
-    """
-    Main orchestrator that coordinates the refactoring swarm.
-    """
-    
+    """Main orchestrator that coordinates the refactoring swarm."""
+
     def __init__(self, target_dir: str):
         """
         Initialize the orchestrator.
-        
+
         Args:
-            target_dir: Path to directory containing code to refactor
+            target_dir: Path to directory containing code to refactor.
         """
-        self.target_dir = Path(target_dir)
-        
+        self.target_dir = Path(target_dir).resolve()
         if not self.target_dir.exists():
             raise ValueError(f"Target directory does not exist: {target_dir}")
-        
-        # Initialize agents
+
         self.auditor = AuditorAgent()
         self.fixer = FixerAgent()
         self.judge = JudgeAgent()
-        
-        # Track results
+
         self.results = {
             "total_files": 0,
             "successful": 0,
             "failed": 0,
             "files": {}
         }
-        
         print(f"🚀 Orchestrator initialized for: {self.target_dir}")
-    
+
+    # ------------------------------------------------------------------
+    # File discovery
+    # ------------------------------------------------------------------
+
     def find_python_files(self) -> List[str]:
-        """
-        Find all Python files to process (excluding test files).
-        
-        Returns:
-            List of Python file paths relative to target_dir
-        """
-        # Get all Python files in target directory
-        all_files = list_python_files(str(self.target_dir.relative_to(SANDBOX_DIR)))
-        
-        # Filter out test files
-        code_files = [
-            f for f in all_files 
-            if not (Path(f).name.startswith('test_') or Path(f).name.endswith('_test.py'))
-        ]
-        
-        print(f"📁 Found {len(code_files)} Python file(s) to process")
-        for f in code_files:
+        """Find all non-test Python files in target_dir."""
+        python_files = []
+        for item in sorted(self.target_dir.rglob("*.py")):
+            name = item.name
+            if name.startswith("test_") or name.endswith("_test.py"):
+                continue
+            if any(part.startswith(".") or part == "__pycache__"
+                   for part in item.parts):
+                continue
+            python_files.append(str(item.relative_to(self.target_dir)))
+
+        print(f"📁 Found {len(python_files)} Python file(s) to process")
+        for f in python_files:
             print(f"   - {f}")
-        
-        return code_files
-    
+        return python_files
+
     def find_test_file(self, code_file: str) -> Optional[str]:
-        """
-        Find the corresponding test file for a code file.
-        
-        Args:
-            code_file: Path to code file
-            
-        Returns:
-            Path to test file, or None if not found
-        """
+        """Return absolute path of existing test file, or None."""
         code_path = Path(code_file)
-        
-        # Try common test file naming patterns
-        possible_names = [
-            f"test_{code_path.name}",
-            f"{code_path.stem}_test.py"
-        ]
-        
-        for test_name in possible_names:
-            test_path = code_path.parent / test_name
-            full_test_path = self.target_dir / test_path
-            
-            if full_test_path.exists():
-                return str(test_path)
-        
+        for test_name in [f"test_{code_path.name}", f"{code_path.stem}_test.py"]:
+            candidate = self.target_dir / code_path.parent / test_name
+            if candidate.exists():
+                return str(candidate)
         return None
-    
+
+    # ------------------------------------------------------------------
+    # Main entry points
+    # ------------------------------------------------------------------
+
     def process_all_files(self) -> Dict:
-        """
-        Process all Python files in the target directory.
-        
-        Returns:
-            Summary dictionary with results for all files
-        """
+        """Process every Python file in target_dir."""
         print("\n" + "="*70)
         print("🔧 STARTING REFACTORING SWARM")
         print("="*70 + "\n")
-        
+
         start_time = time.time()
-        
-        # Find all Python files to process
         code_files = self.find_python_files()
         self.results["total_files"] = len(code_files)
-        
-        if len(code_files) == 0:
+
+        if not code_files:
             print("⚠️  No Python files found to process!")
             return self.results
-        
-        # Process each file sequentially
+
         for idx, code_file in enumerate(code_files, 1):
             print(f"\n{'='*70}")
             print(f"📄 Processing File {idx}/{len(code_files)}: {code_file}")
             print(f"{'='*70}\n")
-            
+
             result = self.refactor_single_file(code_file)
             self.results["files"][code_file] = result
-            
+
             if result["status"] == "SUCCESS":
                 self.results["successful"] += 1
             else:
                 self.results["failed"] += 1
-        
-        # Print final summary
-        elapsed_time = time.time() - start_time
-        self._print_final_summary(elapsed_time)
-        
+
+        self._print_final_summary(time.time() - start_time)
         return self.results
-    
+
     def refactor_single_file(self, file_path: str) -> Dict:
         """
-        Refactor a single Python file using the agent workflow.
-        
-        Args:
-            file_path: Path to Python file (relative to sandbox)
-            
-        Returns:
-            Dictionary with refactoring results for this file
+        Run the Audit → Fix → Judge loop on one file.
+
+        file_path is relative to target_dir.
+        All agents receive absolute paths.
         """
         result = {
             "status": "UNKNOWN",
@@ -166,192 +128,185 @@ class Orchestrator:
             "test_file": None,
             "error": None
         }
-        
-        # Get initial code quality score using CodeAnalyzer
-        try:
-            analyzer = CodeAnalyzer(str(SANDBOX_DIR / file_path))
-            analyzer.analyze()
-            # Calculate a simple score based on issues found
-            style_issues = analyzer.analysis_results.get('style', {}).get('issues_count', 0)
-            security_issues = analyzer.analysis_results.get('security', {}).get('issues_count', 0)
-            result["initial_score"] = max(0.0, 10.0 - (style_issues * 0.2) - (security_issues * 1.0))
-        except Exception as e:
-            result["initial_score"] = 0.0
-        
-        print(f"📊 Initial Quality Score: {result['initial_score']:.2f}/10")
-        
-        # Find corresponding test file
-        test_file = self.find_test_file(file_path)
-        result["test_file"] = test_file
-        
-        if not test_file:
-            print(f"ℹ️  No test file found - Judge will generate one")
-            test_file = f"test_{Path(file_path).name}"
 
-        # Track previous test results for feedback to Fixer
+        abs_code = self.target_dir / file_path
+        result["initial_score"] = self._quality_score(abs_code)
+        print(f"📊 Initial Quality Score: {result['initial_score']:.2f}/10")
+
+        existing_test = self.find_test_file(file_path)
+        abs_test = Path(existing_test) if existing_test else (
+            self.target_dir / f"test_{Path(file_path).name}"
+        )
+        result["test_file"] = str(abs_test)
+
+        if existing_test:
+            print(f"ℹ️  Found existing test file: {abs_test.name}")
+        else:
+            print(f"ℹ️  No test file found — Judge will generate: {abs_test.name}")
+
         previous_test_feedback = None
-        
-        # Main refactoring loop (max 10 iterations)
+
         for iteration in range(1, MAX_ITERATIONS + 1):
             result["iterations"] = iteration
-            
+
             print(f"\n{'─'*70}")
             print(f"🔄 ITERATION {iteration}/{MAX_ITERATIONS}")
             print(f"{'─'*70}\n")
-            
-            # Step 1: Auditor analyzes the code
+
+            # ── Step 1: Audit (no LLM, free) ──────────────────────────
             print("🔍 Step 1: Auditor analyzing code...")
             try:
-                audit_result = self.auditor.analyze(file_path)
-                
+                audit_result = self.auditor.analyze(str(abs_code))
                 if not audit_result.get("success", False):
                     result["status"] = "AUDIT_FAILED"
                     result["error"] = audit_result.get("error", "Audit failed")
                     print(f"❌ Audit failed: {result['error']}")
                     break
-                
+
                 issues = audit_result.get("issues", [])
-                print(f"   Found {len(issues)} issue(s)")
-                
+                quality_score = audit_result.get("quality_score", 0.0)
+                print(f"   Found {len(issues)} issue(s), score: {quality_score:.2f}/10")
+
+                # Early exit: if no issues and high score and tests already passed
+                if not issues and quality_score >= 8.0 and not previous_test_feedback:
+                    print("   ✨ Code looks clean — jumping straight to Judge to verify")
+
             except Exception as e:
                 result["status"] = "AUDIT_ERROR"
                 result["error"] = str(e)
                 print(f"❌ Auditor error: {e}")
                 break
-            
-            # Step 2: Fixer corrects the code
-            print("\n🔧 Step 2: Fixer correcting code...")
-            try:
-                # Combine audit result with test feedback from previous iteration
-                combined_feedback = audit_result.copy()
-                if previous_test_feedback:
-                    combined_feedback["test_failures"] = previous_test_feedback
-                    combined_feedback["issues"].extend([{
-                        "severity": "critical",
-                        "type": "test_failure",
-                        "line": 0,
-                        "message": previous_test_feedback
-                    }])
 
-                fix_result = self.fixer.fix(file_path, combined_feedback)
-                
-                if not fix_result.get("success", False):
-                    result["status"] = "FIX_FAILED"
-                    result["error"] = fix_result.get("error", "Fix failed")
-                    print(f"❌ Fix failed: {result['error']}")
+            # ── Step 2: Fix (uses 1 LLM call) ─────────────────────────
+            # Skip fixer if code is clean AND no previous test failure
+            skip_fixer = (
+                not issues
+                and quality_score >= 8.0
+                and not previous_test_feedback
+                and iteration == 1
+            )
+
+            if not skip_fixer:
+                print("\n🔧 Step 2: Fixer correcting code...")
+                try:
+                    combined = audit_result.copy()
+                    if previous_test_feedback:
+                        combined.setdefault("issues", []).append({
+                            "severity": "critical",
+                            "type": "test_failure",
+                            "line": 0,
+                            "message": previous_test_feedback
+                        })
+                        combined["test_failures"] = previous_test_feedback
+
+                    fix_result = self.fixer.fix(str(abs_code), combined)
+                    if not fix_result.get("success", False):
+                        result["status"] = "FIX_FAILED"
+                        result["error"] = fix_result.get("error", "Fix failed")
+                        print(f"❌ Fix failed: {result['error']}")
+                        break
+
+                    print(f"   ✅ Code fixed and saved")
+                    time.sleep(INTER_AGENT_SLEEP)
+
+                except Exception as e:
+                    result["status"] = "FIX_ERROR"
+                    result["error"] = str(e)
+                    print(f"❌ Fixer error: {e}")
                     break
-                
-                print(f"   ✅ Code fixed and saved")
-                
-            except Exception as e:
-                result["status"] = "FIX_ERROR"
-                result["error"] = str(e)
-                print(f"❌ Fixer error: {e}")
-                break
-            
-            # Step 3: Judge validates with tests
+            else:
+                print("\n🔧 Step 2: Skipping Fixer (code already clean)")
+
+            # ── Step 3: Judge (uses 1 LLM call) ───────────────────────
             print("\n⚖️  Step 3: Judge running tests...")
             try:
-                judge_result = self.judge.validate(file_path, test_file)
-                
-                tests_passed = judge_result.get("tests_passed", False)
-                passed_count = judge_result.get("passed", 0)
-                failed_count = judge_result.get("failed", 0)
-                
-                print(f"   Tests: {passed_count} passed, {failed_count} failed")
-                
-                if tests_passed:
-                    # SUCCESS! All tests passed
+                judge_result = self.judge.validate(str(abs_code), str(abs_test))
+
+                passed  = judge_result.get("passed", 0)
+                failed  = judge_result.get("failed", 0)
+                passed_all = judge_result.get("tests_passed", False)
+
+                print(f"   Tests: {passed} passed, {failed} failed")
+
+                if passed_all:
                     result["status"] = "SUCCESS"
                     print(f"\n🎉 SUCCESS! All tests passed in iteration {iteration}")
                     break
                 else:
-                    # Tests failed, continue loop
                     previous_test_feedback = judge_result.get("feedback", "Tests failed")
-
                     print(f"\n⚠️  Tests failed. Continuing to iteration {iteration + 1}...")
-                    
+
                     if iteration == MAX_ITERATIONS:
                         result["status"] = "MAX_ITERATIONS"
                         result["error"] = f"Failed after {MAX_ITERATIONS} iterations"
                         print(f"\n❌ Maximum iterations ({MAX_ITERATIONS}) reached")
-                
+
             except Exception as e:
                 result["status"] = "JUDGE_ERROR"
                 result["error"] = str(e)
                 print(f"❌ Judge error: {e}")
                 break
-        
-        # Get final code quality score
-        try:
-            analyzer = CodeAnalyzer(str(SANDBOX_DIR / file_path))
-            analyzer.analyze()
-            style_issues = analyzer.analysis_results.get('style', {}).get('issues_count', 0)
-            security_issues = analyzer.analysis_results.get('security', {}).get('issues_count', 0)
-            result["final_score"] = max(0.0, 10.0 - (style_issues * 0.2) - (security_issues * 1.0))
-        except:
-            result["final_score"] = result["initial_score"]
-        
+
+            if iteration < MAX_ITERATIONS:
+                print(f"   💤 Waiting {INTER_ITER_SLEEP}s before next iteration...")
+                time.sleep(INTER_ITER_SLEEP)
+
+        result["final_score"] = self._quality_score(abs_code)
         result["score_improvement"] = result["final_score"] - result["initial_score"]
-        
         print(f"\n📊 Final Quality Score: {result['final_score']:.2f}/10")
         print(f"📈 Improvement: {result['score_improvement']:+.2f}")
-        
         return result
-    
-    def _print_final_summary(self, elapsed_time: float):
-        """Print a final summary of all refactoring results."""
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _quality_score(self, abs_path: Path) -> float:
+        """Compute simple quality score from static analysis."""
+        try:
+            a = CodeAnalyzer(str(abs_path))
+            a.analyze()
+            style = a.analysis_results.get('style', {}).get('issues_count', 0)
+            sec   = a.analysis_results.get('security', {}).get('issues_count', 0)
+            return max(0.0, 10.0 - style * 0.2 - sec * 1.0)
+        except Exception:
+            return 0.0
+
+    def _print_final_summary(self, elapsed: float):
+        """Print summary of all results."""
         print("\n" + "="*70)
         print("📊 FINAL SUMMARY")
         print("="*70)
-        
-        print(f"\n⏱️  Total Time: {elapsed_time:.2f} seconds")
+        print(f"\n⏱️  Total Time: {elapsed:.2f}s")
         print(f"📁 Total Files: {self.results['total_files']}")
-        print(f"✅ Successful: {self.results['successful']}")
-        print(f"❌ Failed: {self.results['failed']}")
-        
+        print(f"✅ Successful:  {self.results['successful']}")
+        print(f"❌ Failed:      {self.results['failed']}")
+
         if self.results["files"]:
             print("\n📋 Detailed Results:")
             print("-"*70)
-            
-            for file_path, result in self.results["files"].items():
-                status_symbol = "✅" if result["status"] == "SUCCESS" else "❌"
-                print(f"\n{status_symbol} {file_path}")
-                print(f"   Status: {result['status']}")
-                print(f"   Iterations: {result['iterations']}")
-                print(f"   Score: {result['initial_score']:.2f} → {result['final_score']:.2f} ({result['score_improvement']:+.2f})")
-                
-                if result.get("error"):
-                    print(f"   Error: {result['error']}")
-        
+            for fp, r in self.results["files"].items():
+                sym = "✅" if r["status"] == "SUCCESS" else "❌"
+                print(f"\n{sym} {fp}")
+                print(f"   Status:     {r['status']}")
+                print(f"   Iterations: {r['iterations']}")
+                print(f"   Score:      {r['initial_score']:.2f} → {r['final_score']:.2f} ({r['score_improvement']:+.2f})")
+                if r.get("error"):
+                    print(f"   Error:      {r['error']}")
+
         print("\n" + "="*70)
-        
         if self.results["failed"] == 0:
             print("🎉 ALL FILES SUCCESSFULLY REFACTORED!")
         else:
             print(f"⚠️  {self.results['failed']} file(s) could not be fully refactored")
-        
         print("="*70 + "\n")
 
 
 def main():
-    """Test the orchestrator."""
-    import sys
-    
     if len(sys.argv) > 1:
-        target = sys.argv[1]
+        Orchestrator(sys.argv[1]).process_all_files()
     else:
         print("Usage: python orchestrator.py <target_dir>")
-        return
-    
-    orchestrator = Orchestrator(target)
-    results = orchestrator.process_all_files()
-    
-    if results["failed"] == 0:
-        sys.exit(0)
-    else:
-        sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

@@ -13,7 +13,6 @@ from src.utils.logger import log_experiment, ActionType
 from src.utils.config import GROQ_API_KEY, DEFAULT_MODEL
 
 from langchain_groq import ChatGroq
-from langchain_core.rate_limiters import InMemoryRateLimiter
 
 
 class FixerAgent:

@@ -11,6 +11,8 @@ venv/
 # Dossier de travail temporaire (ne pas récupérer les modifications des étudiants ici)
 sandbox/
 
+!sandbox/dataset_inconnu
+
 
 # LOGS : On ignore tout le dossier logs...
 logs/*
